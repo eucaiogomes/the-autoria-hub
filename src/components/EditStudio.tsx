@@ -732,6 +732,58 @@ export default function EditStudio() {
   const trackPxWidth = Math.max(duration * PX_PER_SEC, 600);
   const ticks = Math.max(10, Math.ceil(duration));
 
+  // ===== Pre-bucket segments by layer (avoids N×M filter on every render) =====
+  const segmentsByLayer = useMemo(() => {
+    const buckets: Segment[][] = Array.from({ length: layerCount }, () => []);
+    for (const s of segments) {
+      if (s.layer >= 0 && s.layer < layerCount) buckets[s.layer].push(s);
+    }
+    return buckets;
+  }, [segments, layerCount]);
+
+  // Stable Set of dragging ids — avoids creating a new Set per LayerRow per frame.
+  const draggingIds = useMemo(
+    () => (dragPreview ? new Set(dragPreview.items.map((i) => i.id)) : null),
+    [dragPreview],
+  );
+  const previewItemsByLayer = useMemo(() => {
+    const map = new Map<number, { id: string; layer: number; start: number; length: number }[]>();
+    if (dragPreview) {
+      for (const it of dragPreview.items) {
+        const arr = map.get(it.layer) ?? [];
+        arr.push(it);
+        map.set(it.layer, arr);
+      }
+    }
+    return map;
+  }, [dragPreview]);
+  const EMPTY_PREVIEW: { id: string; layer: number; start: number; length: number }[] = [];
+
+  const layerRows = useMemo(
+    () =>
+      Array.from({ length: layerCount }).map((_, layerIdx) => (
+        <LayerRow
+          key={layerIdx}
+          layerIdx={layerIdx}
+          segs={segmentsByLayer[layerIdx] ?? []}
+          pxPerSec={PX_PER_SEC}
+          totalPx={trackPxWidth}
+          selectedIds={selectedIds}
+          toggleSelect={toggleSelect}
+          trim={trim}
+          dragPreviewItems={previewItemsByLayer.get(layerIdx) ?? EMPTY_PREVIEW}
+          dragInsertAt={dragPreview && dragPreview.insertLayer === layerIdx ? dragPreview.insertAt : null}
+          dragRippleLength={dragPreview && dragPreview.insertLayer === layerIdx ? dragPreview.rippleLength : 0}
+          draggingIds={draggingIds}
+          onDragUpdate={updateDragPreview}
+          onDragCommit={commitDrag}
+          onDragCancel={cancelDrag}
+        />
+      )),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layerCount, segmentsByLayer, PX_PER_SEC, trackPxWidth, selectedIds, dragPreview, draggingIds, previewItemsByLayer],
+  );
+
   const onRulerMouseDown = (e: React.MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const scroll = timelineScrollRef.current?.scrollLeft ?? 0;
