@@ -1035,6 +1035,7 @@ export default function EditStudio() {
               trim={trim}
               dragPreviewItems={dragPreview ? dragPreview.items.filter((i) => i.layer === layerIdx) : []}
               dragInsertAt={dragPreview && dragPreview.insertLayer === layerIdx ? dragPreview.insertAt : null}
+              dragRippleLength={dragPreview && dragPreview.insertLayer === layerIdx ? dragPreview.rippleLength : 0}
               draggingIds={dragPreview ? new Set(dragPreview.items.map((i) => i.id)) : null}
               onDragUpdate={updateDragPreview}
               onDragCommit={commitDrag}
