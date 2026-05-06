@@ -1466,7 +1466,7 @@ const KIND_STYLE: Record<Kind, { color: string; Icon: any }> = {
   image: { color: "bg-amber-500/30 ring-amber-500/60", Icon: Film },
 };
 
-function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect, trim, dragPreviewItems, dragInsertAt, dragRippleLength, draggingIds, onDragUpdate, onDragCommit, onDragCancel }: {
+const LayerRow = memo(function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect, trim, dragPreviewItems, dragInsertAt, dragRippleLength, draggingIds, onDragUpdate, onDragCommit, onDragCancel }: {
   layerIdx: number;
   segs: Segment[];
   pxPerSec: number;
@@ -1530,33 +1530,46 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
                 const startStart = s.start;
                 const startLayer = s.layer;
                 let moved = false;
+                let rafId = 0;
+                let pendingX = 0;
+                let pendingY = 0;
+                const flush = () => {
+                  rafId = 0;
+                  const newStart = Math.max(0, startStart + pendingX / pxPerSec);
+                  const layerDelta = Math.round(pendingY / 44);
+                  const newLayer = Math.max(0, startLayer + layerDelta);
+                  onDragUpdate(s.id, newStart, newLayer);
+                };
                 const move = (ev: MouseEvent) => {
                   const dx = ev.clientX - startX;
                   const dy = ev.clientY - startY;
                   if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
                   moved = true;
-                  const newStart = Math.max(0, startStart + dx / pxPerSec);
-                  const layerDelta = Math.round(dy / 44);
-                  const newLayer = Math.max(0, startLayer + layerDelta);
-                  onDragUpdate(s.id, newStart, newLayer);
+                  pendingX = dx;
+                  pendingY = dy;
+                  if (!rafId) rafId = requestAnimationFrame(flush);
                 };
                 const up = () => {
                   window.removeEventListener("mousemove", move);
                   window.removeEventListener("mouseup", up);
+                  if (rafId) cancelAnimationFrame(rafId);
                   if (moved) onDragCommit(); else onDragCancel();
                 };
-                window.addEventListener("mousemove", move);
+                window.addEventListener("mousemove", move, { passive: true });
                 window.addEventListener("mouseup", up);
               }}
               className={`group absolute inset-y-0.5 cursor-grab overflow-hidden rounded ring-1 ${style.color} ${selected ? "outline outline-2 outline-[hsl(var(--rec))] z-10" : "hover:brightness-110"} ${isDragging ? "opacity-40" : ""} ${isRippled ? "ring-primary/40" : ""}`}
               style={{
-                left,
+                // Use transform for GPU-accelerated movement instead of `left`.
+                left: 0,
                 width,
+                transform: `translate3d(${left}px, 0, 0)`,
                 transition: isDragging
                   ? "none"
-                  : "left 320ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms ease, opacity 180ms ease, filter 180ms ease, box-shadow 200ms ease",
+                  : "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms ease, opacity 180ms ease",
                 transitionDelay: isDragging ? "0ms" : `${staggerMs}ms`,
-                willChange: "left",
+                willChange: dragInsertAt !== null ? "transform" : "auto",
+                contain: "layout paint",
               }}
             >
               <div className="flex h-full items-center gap-1 px-1.5 text-[10px] text-foreground/90">
@@ -1583,13 +1596,15 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
           return (
             <div
               key={`ghost-${it.id}`}
-              className="pointer-events-none absolute inset-y-0.5 rounded border border-dashed border-primary/60 bg-primary/10 z-20 animate-fade-in"
+              className="pointer-events-none absolute inset-y-0.5 rounded border border-dashed border-primary/60 bg-primary/10 z-20"
               style={{
-                left: ghostLeft,
+                left: 0,
                 width: it.length * pxPerSec,
+                transform: `translate3d(${ghostLeft}px, 0, 0)`,
                 transition:
-                  "left 220ms cubic-bezier(0.22, 1, 0.36, 1), width 180ms ease",
+                  "transform 220ms cubic-bezier(0.22, 1, 0.36, 1), width 180ms ease",
                 boxShadow: "0 0 0 1px hsl(var(--primary) / 0.15) inset",
+                willChange: "transform",
               }}
             />
           );
@@ -1598,24 +1613,26 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
         {/* Insertion indicator — soft dotted vertical line on the next clip's edge */}
         {dragInsertAt !== null && (
           <div
-            className="pointer-events-none absolute inset-y-1 z-30 animate-fade-in"
+            className="pointer-events-none absolute inset-y-1 z-30"
             style={{
-              left: (dragInsertAt + dragRippleLength) * pxPerSec - 1,
+              left: 0,
               width: 2,
+              transform: `translate3d(${(dragInsertAt + dragRippleLength) * pxPerSec - 1}px, 0, 0)`,
               backgroundImage:
                 "linear-gradient(to bottom, hsl(var(--primary) / 0.85) 50%, transparent 50%)",
               backgroundSize: "2px 5px",
               backgroundRepeat: "repeat-y",
               borderRadius: 2,
               filter: "drop-shadow(0 0 4px hsl(var(--primary) / 0.45))",
-              transition: "left 220ms cubic-bezier(0.22, 1, 0.36, 1)",
+              transition: "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)",
+              willChange: "transform",
             }}
           />
         )}
       </div>
     </div>
   );
-}
+});
 
 function Handle({ side, onDrag, disabled, title }: { side: "left" | "right"; onDrag: (deltaPx: number) => void; disabled?: boolean; title?: string }) {
   const onDown = (e: React.MouseEvent) => {
