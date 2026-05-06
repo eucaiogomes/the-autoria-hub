@@ -570,7 +570,7 @@ export default function EditStudio() {
         }
       }
 
-      return prev.map((s) => {
+      const placed = prev.map((s) => {
         const it = itemsById.get(s.id);
         if (it) {
           // Moving clip: place at preview position, but if it lands on the
@@ -593,6 +593,41 @@ export default function EditStudio() {
         }
         return ns !== s.start ? { ...s, start: ns } : s;
       });
+
+      // ===== Final overlap guard =====
+      // After placing/rippling, sweep every layer the move touched and push
+      // any still-overlapping stationary clip rightward so two clips never
+      // visually stack on the same layer.
+      const touchedLayers = new Set<number>();
+      dp.items.forEach((i) => touchedLayers.add(i.layer));
+      gapsByLayer.forEach((_, L) => touchedLayers.add(L));
+      const movedIds = new Set(dp.items.map((i) => i.id));
+      const byId = new Map(placed.map((s) => [s.id, { ...s }]));
+      for (const L of touchedLayers) {
+        const onLayer = placed
+          .filter((s) => s.layer === L)
+          .map((s) => byId.get(s.id)!)
+          .sort((a, b) => a.start - b.start);
+        for (let i = 1; i < onLayer.length; i++) {
+          const prevSeg = onLayer[i - 1];
+          const cur = onLayer[i];
+          const prevEnd = prevSeg.start + (prevSeg.srcEnd - prevSeg.srcStart);
+          if (cur.start < prevEnd - 1e-3) {
+            // Prefer pushing the non-moved clip; if the moved one is later,
+            // still push the later clip to keep the user's drop position.
+            if (movedIds.has(cur.id) && !movedIds.has(prevSeg.id)) {
+              // moved clip dropped into stationary clip → push stationary back
+              const shift = prevEnd - cur.start;
+              prevSeg.start = Math.max(0, prevSeg.start - shift);
+              // re-sort handled by next iter; simpler: just push cur instead
+              cur.start = prevEnd;
+            } else {
+              cur.start = prevEnd;
+            }
+          }
+        }
+      }
+      return placed.map((s) => byId.get(s.id) ?? s);
     });
   };
 
