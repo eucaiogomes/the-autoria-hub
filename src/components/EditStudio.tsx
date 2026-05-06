@@ -1397,7 +1397,7 @@ const KIND_STYLE: Record<Kind, { color: string; Icon: any }> = {
   image: { color: "bg-amber-500/30 ring-amber-500/60", Icon: Film },
 };
 
-function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect, trim, dragPreviewItems, dragInsertAt, draggingIds, onDragUpdate, onDragCommit, onDragCancel }: {
+function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect, trim, dragPreviewItems, dragInsertAt, dragRippleLength, draggingIds, onDragUpdate, onDragCommit, onDragCancel }: {
   layerIdx: number;
   segs: Segment[];
   pxPerSec: number;
@@ -1407,6 +1407,7 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
   trim: (id: string, edge: "start" | "end", deltaSec: number) => void;
   dragPreviewItems: { id: string; layer: number; start: number; length: number }[];
   dragInsertAt: number | null;
+  dragRippleLength: number;
   draggingIds: Set<string> | null;
   onDragUpdate: (id: string, proposedStart: number, proposedLayer: number) => void;
   onDragCommit: () => void;
@@ -1423,7 +1424,17 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
       >
         {segs.map((s) => {
           const isDragging = !!draggingIds?.has(s.id);
-          const left = s.start * pxPerSec;
+          // Ripple preview: when dragging, shift later clips on the insert layer
+          // by rippleLength so they slide smoothly out of the way.
+          let previewStart = s.start;
+          if (
+            !isDragging &&
+            dragInsertAt !== null &&
+            s.start >= dragInsertAt - 1e-3
+          ) {
+            previewStart = s.start + dragRippleLength;
+          }
+          const left = previewStart * pxPerSec;
           const width = (s.srcEnd - s.srcStart) * pxPerSec;
           const selected = selectedIds.has(s.id);
           const style = KIND_STYLE[s.kind];
@@ -1459,8 +1470,14 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
                 window.addEventListener("mousemove", move);
                 window.addEventListener("mouseup", up);
               }}
-              className={`group absolute inset-y-0.5 cursor-grab overflow-hidden rounded ring-1 transition-all duration-100 ${style.color} ${selected ? "outline outline-2 outline-[hsl(var(--rec))] z-10" : "hover:brightness-110"} ${isDragging ? "opacity-40" : ""}`}
-              style={{ left, width }}
+              className={`group absolute inset-y-0.5 cursor-grab overflow-hidden rounded ring-1 ${style.color} ${selected ? "outline outline-2 outline-[hsl(var(--rec))] z-10" : "hover:brightness-110"} ${isDragging ? "opacity-40" : ""}`}
+              style={{
+                left,
+                width,
+                transition: isDragging
+                  ? "none"
+                  : "left 220ms cubic-bezier(0.22, 1, 0.36, 1), width 180ms ease, opacity 150ms ease, filter 150ms ease",
+              }}
             >
               <div className="flex h-full items-center gap-1 px-1.5 text-[10px] text-foreground/90">
                 <style.Icon className="h-3 w-3 opacity-70 shrink-0" />
@@ -1478,25 +1495,40 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
         })}
 
         {/* Ghost previews of dragged clips on this layer */}
-        {dragInsertAt === null && dragPreviewItems.map((it) => (
-          <div
-            key={`ghost-${it.id}`}
-            className="pointer-events-none absolute inset-y-0.5 rounded border border-dashed border-primary/50 bg-primary/5 z-20"
-            style={{ left: it.start * pxPerSec, width: it.length * pxPerSec }}
-          />
-        ))}
+        {dragPreviewItems.map((it) => {
+          const ghostLeft =
+            dragInsertAt !== null
+              ? dragInsertAt * pxPerSec
+              : it.start * pxPerSec;
+          return (
+            <div
+              key={`ghost-${it.id}`}
+              className="pointer-events-none absolute inset-y-0.5 rounded border border-dashed border-primary/60 bg-primary/10 z-20 animate-fade-in"
+              style={{
+                left: ghostLeft,
+                width: it.length * pxPerSec,
+                transition:
+                  "left 220ms cubic-bezier(0.22, 1, 0.36, 1), width 180ms ease",
+                boxShadow: "0 0 0 1px hsl(var(--primary) / 0.15) inset",
+              }}
+            />
+          );
+        })}
 
-        {/* Insertion indicator — minimal dotted vertical line at clip edge */}
+        {/* Insertion indicator — soft dotted vertical line on the next clip's edge */}
         {dragInsertAt !== null && (
           <div
-            className="pointer-events-none absolute inset-y-1 z-30"
+            className="pointer-events-none absolute inset-y-1 z-30 animate-fade-in"
             style={{
-              left: dragInsertAt * pxPerSec - 0.5,
-              width: 1,
-              backgroundImage: "linear-gradient(to bottom, hsl(var(--primary)) 50%, transparent 50%)",
-              backgroundSize: "1px 4px",
+              left: (dragInsertAt + dragRippleLength) * pxPerSec - 1,
+              width: 2,
+              backgroundImage:
+                "linear-gradient(to bottom, hsl(var(--primary) / 0.85) 50%, transparent 50%)",
+              backgroundSize: "2px 5px",
               backgroundRepeat: "repeat-y",
-              opacity: 0.7,
+              borderRadius: 2,
+              filter: "drop-shadow(0 0 4px hsl(var(--primary) / 0.45))",
+              transition: "left 220ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           />
         )}
