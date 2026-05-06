@@ -1462,17 +1462,26 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
           // Ripple preview: when dragging, shift later clips on the insert layer
           // by rippleLength so they slide smoothly out of the way.
           let previewStart = s.start;
+          let isRippled = false;
           if (
             !isDragging &&
             dragInsertAt !== null &&
             s.start >= dragInsertAt - 1e-3
           ) {
             previewStart = s.start + dragRippleLength;
+            isRippled = true;
           }
           const left = previewStart * pxPerSec;
           const width = (s.srcEnd - s.srcStart) * pxPerSec;
           const selected = selectedIds.has(s.id);
           const style = KIND_STYLE[s.kind];
+          // Subtle stagger: clips farther from the insertion point animate
+          // slightly later, producing a wave-like ripple feel (capped low so
+          // the timeline still feels responsive).
+          const staggerMs =
+            dragInsertAt !== null
+              ? Math.min(90, Math.max(0, (s.start - dragInsertAt)) * 12)
+              : 0;
           return (
             <div
               key={s.id}
@@ -1505,13 +1514,15 @@ function LayerRow({ layerIdx, segs, pxPerSec, totalPx, selectedIds, toggleSelect
                 window.addEventListener("mousemove", move);
                 window.addEventListener("mouseup", up);
               }}
-              className={`group absolute inset-y-0.5 cursor-grab overflow-hidden rounded ring-1 ${style.color} ${selected ? "outline outline-2 outline-[hsl(var(--rec))] z-10" : "hover:brightness-110"} ${isDragging ? "opacity-40" : ""}`}
+              className={`group absolute inset-y-0.5 cursor-grab overflow-hidden rounded ring-1 ${style.color} ${selected ? "outline outline-2 outline-[hsl(var(--rec))] z-10" : "hover:brightness-110"} ${isDragging ? "opacity-40" : ""} ${isRippled ? "ring-primary/40" : ""}`}
               style={{
                 left,
                 width,
                 transition: isDragging
                   ? "none"
-                  : "left 220ms cubic-bezier(0.22, 1, 0.36, 1), width 180ms ease, opacity 150ms ease, filter 150ms ease",
+                  : "left 320ms cubic-bezier(0.16, 1, 0.3, 1), width 200ms ease, opacity 180ms ease, filter 180ms ease, box-shadow 200ms ease",
+                transitionDelay: isDragging ? "0ms" : `${staggerMs}ms`,
+                willChange: "left",
               }}
             >
               <div className="flex h-full items-center gap-1 px-1.5 text-[10px] text-foreground/90">
